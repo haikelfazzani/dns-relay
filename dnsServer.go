@@ -126,7 +126,7 @@ func (s *dnsServer) createResponse(req *dns.Msg) ([]byte, error) {
 				Class:  dns.ClassINET,
 				Ttl:    300,
 			},
-			AAAA: net.IPv4zero,
+			AAAA: net.IPv6zero,
 		}
 
 		resp.Answer = append(resp.Answer, rr)
@@ -140,7 +140,7 @@ func (s *dnsServer) createResponse(req *dns.Msg) ([]byte, error) {
 			Class:  dns.ClassINET,
 			Ttl:    300,
 		},
-		A: net.IPv6zero,
+		A: net.IPv4zero,
 	}
 
 	resp.Answer = append(resp.Answer, rr)
