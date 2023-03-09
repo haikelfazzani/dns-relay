@@ -110,7 +110,7 @@ func (dnsRelay *DNSRelay) ResolveFromHostsFile(filePath string, hostname string)
 			r := regexp.MustCompile(`[^\s"]+`)
 			fields := r.FindAllString(line, -1)
 
-			if dnsRelay.useWildCard && fields[1] == strings.Trim(hostname, ".") {
+			if dnsRelay.useWildCard && strings.Contains(fields[1], strings.Trim(hostname, ".")) {
 				return fields[0]
 			}
 
