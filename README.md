@@ -20,7 +20,7 @@ func main() {
 ```
 
 ```shell
-dig @127.0.0.1 -p 1053 videoplaza.se
+dig @127.0.0.1 -p 1053 google.com
 ```
 
 # Todo
