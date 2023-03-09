@@ -3,11 +3,12 @@ package main
 func main() {
 
 	dnsRelay := &DNSRelay{
-		addrResolver: "8.8.8.8:53",
-		addrClient:   "127.0.0.1:1053",
+		raddr:    "8.8.8.8:53",
+		laddr:    "127.0.0.1:1053",
+		useHosts: true,
 	}
 
-	println("DNS server started" + dnsRelay.addrClient)
+	println("DNS server started: " + dnsRelay.laddr)
 
 	dnsRelay.Start()
 }

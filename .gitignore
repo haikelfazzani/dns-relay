@@ -3,5 +3,5 @@
 *.zip
 *.rar
 main
-build/
+build
 .*txt

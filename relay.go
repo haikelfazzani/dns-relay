@@ -1,23 +1,27 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"net"
-	"os/exec"
+	"os"
+	"regexp"
 	"strings"
 
 	"golang.org/x/net/dns/dnsmessage"
 )
 
 type DNSRelay struct {
-	addrClient   string
-	addrResolver string
+	laddr       string
+	raddr       string
+	useHosts    bool
+	useWildCard bool
 }
 
 func (dnsRelay *DNSRelay) Start() {
 
 	parser := dnsmessage.Parser{}
-	udpAddr, err := net.ResolveUDPAddr("udp", dnsRelay.addrClient)
+	udpAddr, err := net.ResolveUDPAddr("udp", dnsRelay.laddr)
 
 	if err != nil {
 		panic(err)
@@ -33,7 +37,7 @@ func (dnsRelay *DNSRelay) Start() {
 
 	for {
 		buff := make([]byte, 512)
-		n, clientAddr, err := packetConn.ReadFromUDP(buff)
+		n, laddr, err := packetConn.ReadFromUDP(buff)
 
 		if err != nil {
 			panic(err)
@@ -42,15 +46,20 @@ func (dnsRelay *DNSRelay) Start() {
 		go func() {
 			parser.Start(buff)
 			q, _ := parser.Question()
-			fileHostsInfo := dnsRelay.CheckFileHosts(q.Name.String())
 
-			if len(fileHostsInfo) < 1 {
-				response := dnsRelay.Forward(buff[:n], clientAddr)
-				n, err = packetConn.WriteToUDP(response, clientAddr)
-			} else {
-				response := dnsRelay.CreateMessage(buff[:n])
-				n, err = packetConn.WriteToUDP(response, clientAddr)
+			foundedIp := ""
+
+			if dnsRelay.useHosts {
+				foundedIp = dnsRelay.ResolveFromHostsFile("/etc/hosts", q.Name.String())
+				if foundedIp != "" {
+					response := dnsRelay.NewMessage(buff[:n], foundedIp)
+					n, err = packetConn.WriteToUDP(response, laddr)
+					return
+				}
 			}
+
+			response := dnsRelay.Resolve(buff[:n], laddr)
+			n, err = packetConn.WriteToUDP(response, laddr)
 
 			if err != nil {
 				panic(err)
@@ -59,8 +68,8 @@ func (dnsRelay *DNSRelay) Start() {
 	}
 }
 
-func (dnsRelay *DNSRelay) Forward(req []byte, clientAddr *net.UDPAddr) []byte {
-	conn, err := net.Dial("udp", dnsRelay.addrResolver)
+func (dnsRelay *DNSRelay) Resolve(req []byte, laddr *net.UDPAddr) []byte {
+	conn, err := net.Dial("udp", dnsRelay.raddr)
 
 	if err != nil {
 		panic(err)
@@ -84,24 +93,48 @@ func (dnsRelay *DNSRelay) Forward(req []byte, clientAddr *net.UDPAddr) []byte {
 	return buff[:n]
 }
 
-func (dnsRelay *DNSRelay) CheckFileHosts(hostname string) []string {
+func (dnsRelay *DNSRelay) ResolveFromHostsFile(filePath string, hostname string) string {
+	file, err := os.Open(filePath)
+	if err != nil {
+		fmt.Println("Error opening file:", err)
+		return ""
+	}
+	defer file.Close()
 
-	cmd := exec.Command("bash", "-c", "grep -Fx '0.0.0.0       "+strings.TrimSuffix(hostname, ".")+"' /etc/hosts")
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		line = strings.TrimSpace(line)
 
-	stdout, _ := cmd.Output()
+		if !strings.HasPrefix(line, "#") && line != "" {
+			r := regexp.MustCompile(`[^\s"]+`)
+			fields := r.FindAllString(line, -1)
 
-	// 0.0.0.0	example.com
-	fields := strings.Split(string(stdout), "       ")
-	fmt.Printf("\nstdout ===> %v\n \n%v\n", fields, hostname)
+			if dnsRelay.useWildCard && fields[1] == strings.Trim(hostname, ".") {
+				return fields[0]
+			}
 
-	if len(fields) > 1 {
-		return fields
+			if strings.HasPrefix(fields[1], strings.Trim(hostname, ".")) {
+				return fields[0]
+			}
+		}
 	}
 
-	return []string{}
+	if err := scanner.Err(); err != nil {
+		fmt.Println("Error reading file:", err)
+		return ""
+	}
+
+	return ""
 }
 
-func (dnsRelay *DNSRelay) CreateMessage(req []byte) []byte {
+func (dnsRelay *DNSRelay) NewMessage(req []byte, ip string) []byte {
+
+	ipbytes := [4]byte(net.IPv4(0, 0, 0, 0))
+
+	if ip != "" {
+		ipbytes = [4]byte(net.IPv4(ip[0], ip[1], ip[2], ip[3]))
+	}
 
 	parser := dnsmessage.Parser{}
 	header, _ := parser.Start(req)
@@ -124,12 +157,10 @@ func (dnsRelay *DNSRelay) CreateMessage(req []byte) []byte {
 					Type:  dnsmessage.TypeA,
 					Class: dnsmessage.ClassINET,
 				},
-				Body: &dnsmessage.AResource{A: [4]byte(net.IPv4(127, 0, 0, 1))},
+				Body: &dnsmessage.AResource{A: ipbytes},
 			},
 		},
 	}
-
-	fmt.Printf("\nmsg ===>%v\n%v\n ", header, questions)
 
 	response, _ := msg.Pack()
 	return response
